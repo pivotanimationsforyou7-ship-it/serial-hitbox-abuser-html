@@ -6,33 +6,57 @@
 		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
 <script>
 (function() {
-    // 1. Intercept network assets cleanly without stream splitting collisions
-    const originalFetch = window.fetch;
-    window.fetch = async function(...args) {
-        const response = await originalFetch(...args);
-        const url = args;
+    // Helper function to turn a Gzipped Response or ArrayBuffer into a raw uncompressed ArrayBuffer
+    async function decompressGzipBuffer(inputBuffer) {
+        const ds = new DecompressionStream('gzip');
+        const writer = ds.writable.getWriter();
+        writer.write(inputBuffer);
+        writer.close();
+        
+        const response = new Response(ds.readable);
+        return await response.arrayBuffer();
+    }
 
-        if (typeof url === 'string' && (url.includes('.wasm') || url.includes('.pck'))) {
-            // Force decompression via 'deflate' (Zlib format utilized by Minimize Web Build)
-            const ds = new DecompressionStream('deflate');
-            const decompressedStream = response.body.pipeThrough(ds);
-            const contentType = url.includes('.wasm') ? 'application/wasm' : 'application/octet-stream';
+    // 1. Intercept instantiateStreaming (used by modern browsers)
+    const originalInstantiateStreaming = WebAssembly.instantiateStreaming;
+    WebAssembly.instantiateStreaming = async function(source, importObject) {
+        try {
+            const response = await source;
+            let buffer = await response.arrayBuffer();
             
-            return new Response(decompressedStream, { headers: { 'Content-Type': contentType } });
+            // Check for Gzip signature: 0x1F, 0x8B
+            const view = new DataView(buffer);
+            if (buffer.byteLength > 4 && view.getUint16(0) === 0x1f8b) {
+                buffer = await decompressGzipBuffer(buffer);
+            }
+            
+            return await WebAssembly.instantiate(buffer, importObject);
+        } catch (e) {
+            return originalInstantiateStreaming(source, importObject);
         }
-        return response;
     };
 
-    // 2. Safely capture the pristine Godot 4 context object and compile uncompressed bytes
-    WebAssembly.instantiateStreaming = async function(source, importObject) {
-        const response = await source;
-        const buffer = await response.arrayBuffer();
-        // Compiles the raw uncompressed binary alongside Godot's native 'env' import properties
-        return await WebAssembly.instantiate(buffer, importObject);
+    // 2. Intercept raw instantiate (used by the plugin's fallbacks)
+    const originalInstantiate = WebAssembly.instantiate;
+    WebAssembly.instantiate = async function(bufferOrModule, importObject) {
+        if (bufferOrModule instanceof ArrayBuffer || ArrayBuffer.isView(bufferOrModule)) {
+            const buffer = bufferOrModule.buffer || bufferOrModule;
+            const view = new DataView(buffer);
+            
+            // Check for Gzip signature: 0x1F, 0x8B
+            if (buffer.byteLength > 4 && view.getUint16(0) === 0x1f8b) {
+                try {
+                    const decompressed = await decompressGzipBuffer(buffer);
+                    return await originalInstantiate(decompressed, importObject);
+                } catch (err) {
+                    console.error("Failed to inline decompress WASM:", err);
+                }
+            }
+        }
+        return originalInstantiate(bufferOrModule, importObject);
     };
 })();
 </script>
-
 		<title>Serial Hitbox Abuser</title>
 		<style>
 html, body, #canvas {
