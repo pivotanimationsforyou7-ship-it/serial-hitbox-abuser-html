@@ -6,54 +6,32 @@
 		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
 <script>
 (function() {
-    // man i wish this wasn't the hardest thing ever
-    // 1. Intercept network assets natively using a multi-format decompression fallback
+    // 1. Intercept network assets cleanly without stream splitting collisions
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
         const response = await originalFetch(...args);
         const url = args;
 
         if (typeof url === 'string' && (url.includes('.wasm') || url.includes('.pck'))) {
-            try {
-                // Duplicate the response stream so fallback options can read it if needed
-                const [stream1, stream2] = response.body.tee();
-                
-                // Attempt standard zlib/deflate decompression first (Minimize Web Build defaults)
-                const ds = new DecompressionStream('deflate');
-                const decompressedStream = stream1.pipeThrough(ds);
-                const contentType = url.includes('.wasm') ? 'application/wasm' : 'application/octet-stream';
-                
-                return new Response(decompressedStream, { headers: { 'Content-Type': contentType } });
-            } catch (e) {
-                // If the header fails, fallback instantly to standard Gzip streaming
-                const ds = new DecompressionStream('gzip');
-                const decompressedStream = stream2.pipeThrough(ds);
-                const contentType = url.includes('.wasm') ? 'application/wasm' : 'application/octet-stream';
-                
-                return new Response(decompressedStream, { headers: { 'Content-Type': contentType } });
-            }
+            // Force decompression via 'deflate' (Zlib format utilized by Minimize Web Build)
+            const ds = new DecompressionStream('deflate');
+            const decompressedStream = response.body.pipeThrough(ds);
+            const contentType = url.includes('.wasm') ? 'application/wasm' : 'application/octet-stream';
+            
+            return new Response(decompressedStream, { headers: { 'Content-Type': contentType } });
         }
         return response;
     };
 
-    // 2. Safely capture Godot 4's environment (importObject) to resolve the "env" Type Error
-    const originalInstantiateStreaming = WebAssembly.instantiateStreaming;
+    // 2. Safely capture the pristine Godot 4 context object and compile uncompressed bytes
     WebAssembly.instantiateStreaming = async function(source, importObject) {
-        try {
-            const response = await source;
-            const buffer = await response.arrayBuffer();
-            // Force feed the unzipped buffer down to the instantiation window with the exact context mapping
-            return await WebAssembly.instantiate(buffer, importObject);
-        } catch (err) {
-            // Safe fall-through to native execution parameters
-            return originalInstantiateStreaming(source, importObject);
-        }
+        const response = await source;
+        const buffer = await response.arrayBuffer();
+        // Compiles the raw uncompressed binary alongside Godot's native 'env' import properties
+        return await WebAssembly.instantiate(buffer, importObject);
     };
 })();
 </script>
-
-
-
 
 		<title>Serial Hitbox Abuser</title>
 		<style>
