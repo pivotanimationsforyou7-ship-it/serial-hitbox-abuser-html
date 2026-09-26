@@ -4,6 +4,29 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
 		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
+		<script>
+(function() {
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch(...args);
+        const url = args[0];
+
+        // Targets your compressed WASM file specifically
+        if (typeof url === 'string' && url.includes('.wasm')) {
+            // Check if the file is served compressed (Gzip magic bytes: 1f 8b)
+            // This natively decompresses the stream right in the browser sandbox
+            const decompressionStream = new DecompressionStream('gzip');
+            const decompressedStream = response.body.pipeThrough(decompressionStream);
+            
+            return new Response(decompressedStream, {
+                headers: { 'Content-Type': 'application/wasm' }
+            });
+        }
+        return response;
+    };
+})();
+</script>
+
 		<title>Serial Hitbox Abuser</title>
 		<style>
 html, body, #canvas {
