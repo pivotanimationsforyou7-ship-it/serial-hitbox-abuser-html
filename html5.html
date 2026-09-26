@@ -4,28 +4,49 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
 		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
-		<script>
-(function() {
-    const originalFetch = window.fetch;
-    window.fetch = async function(...args) {
-        const response = await originalFetch(...args);
-        const url = args[0];
+<script>
+// Native Service Worker Sandbox to transparently fix asset compression anomalies
+const workerScript = `
+self.addEventListener('install', (e) => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
-        // Targets your compressed WASM file specifically
-        if (typeof url === 'string' && url.includes('.wasm')) {
-            // Check if the file is served compressed (Gzip magic bytes: 1f 8b)
-            // This natively decompresses the stream right in the browser sandbox
-            const decompressionStream = new DecompressionStream('gzip');
-            const decompressedStream = response.body.pipeThrough(decompressionStream);
-            
-            return new Response(decompressedStream, {
-                headers: { 'Content-Type': 'application/wasm' }
-            });
+self.addEventListener('fetch', (event) => {
+    if (event.request.url.includes('.wasm') || event.request.url.includes('.pck')) {
+        event.respondWith(
+            fetch(event.request).then(async (response) => {
+                // If it looks like a gzip file, decompress it cleanly on the fly
+                if (response.status === 200) {
+                    const ds = new DecompressionStream('gzip');
+                    const decompressedStream = response.body.pipeThrough(ds);
+                    
+                    // Determine content type dynamically based on file rule
+                    const contentType = event.request.url.includes('.wasm') 
+                        ? 'application/wasm' 
+                        : 'application/octet-stream';
+
+                    return new Response(decompressedStream, {
+                        headers: { 'Content-Type': contentType }
+                    });
+                }
+                return response;
+            })
+        );
+    }
+});
+`;
+
+if ('serviceWorker' in navigator) {
+    const blob = new Blob([workerScript], { type: 'text/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(workerUrl).then(() => {
+        // Automatically reloads once if the worker activation requires alignment
+        if (!navigator.serviceWorker.controller) {
+            window.location.reload();
         }
-        return response;
-    };
-})();
+    }).catch(err => console.error("Sandbox initialization failure:", err));
+}
 </script>
+
 
 		<title>Serial Hitbox Abuser</title>
 		<style>
