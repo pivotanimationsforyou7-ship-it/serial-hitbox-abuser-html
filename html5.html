@@ -5,47 +5,41 @@
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
 		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
 <script>
-// Native Service Worker Sandbox to transparently fix asset compression anomalies
-const workerScript = `
-self.addEventListener('install', (e) => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+(function() {
+    // 1. Intercept the network request to decompress the Gzip stream on the fly
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch(...args);
+        const url = args[0];
 
-self.addEventListener('fetch', (event) => {
-    if (event.request.url.includes('.wasm') || event.request.url.includes('.pck')) {
-        event.respondWith(
-            fetch(event.request).then(async (response) => {
-                // If it looks like a gzip file, decompress it cleanly on the fly
-                if (response.status === 200) {
-                    const ds = new DecompressionStream('gzip');
-                    const decompressedStream = response.body.pipeThrough(ds);
-                    
-                    // Determine content type dynamically based on file rule
-                    const contentType = event.request.url.includes('.wasm') 
-                        ? 'application/wasm' 
-                        : 'application/octet-stream';
-
-                    return new Response(decompressedStream, {
-                        headers: { 'Content-Type': contentType }
-                    });
-                }
-                return response;
-            })
-        );
-    }
-});
-`;
-
-if ('serviceWorker' in navigator) {
-    const blob = new Blob([workerScript], { type: 'text/javascript' });
-    const workerUrl = URL.createObjectURL(blob);
-    navigator.serviceWorker.register(workerUrl).then(() => {
-        // Automatically reloads once if the worker activation requires alignment
-        if (!navigator.serviceWorker.controller) {
-            window.location.reload();
+        if (typeof url === 'string' && (url.includes('.wasm') || url.includes('.pck'))) {
+            // Natively unzip the stream coming from jsDelivr
+            const ds = new DecompressionStream('gzip');
+            const decompressedStream = response.body.pipeThrough(ds);
+            
+            const contentType = url.includes('.wasm') ? 'application/wasm' : 'application/octet-stream';
+            return new Response(decompressedStream, { headers: { 'Content-Type': contentType } });
         }
-    }).catch(err => console.error("Sandbox initialization failure:", err));
-}
+        return response;
+    };
+
+    // 2. Fix the "env" error by intercepting WebAssembly creation and preserving Godot's arguments
+    const originalInstantiateStreaming = WebAssembly.instantiateStreaming;
+    WebAssembly.instantiateStreaming = async function(source, importObject) {
+        // If the source is a Response object, extract its arrayBuffer to be completely safe
+        const response = await source;
+        const buffer = await response.arrayBuffer();
+        return WebAssembly.instantiate(buffer, importObject);
+    };
+
+    const originalInstantiate = WebAssembly.instantiate;
+    WebAssembly.instantiate = function(bufferOrModule, importObject) {
+        // Ensures that even if the plugin passes broken configurations, Godot's context is preserved
+        return originalInstantiate(bufferOrModule, importObject);
+    };
+})();
 </script>
+
 
 
 		<title>Serial Hitbox Abuser</title>
