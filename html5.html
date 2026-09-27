@@ -109,6 +109,73 @@ body {
 			<progress id="status-progress"></progress>
 			<div id="status-notice"></div>
 		</div>
+		
+<!-- Visual Loading Indicator -->
+<div id="wasm-loader-ui" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: sans-serif; z-index: 999992;">
+    <div style="font-size: 24px; margin-bottom: 15px; font-weight: bold;">Assembling Engine...</div>
+    <div style="width: 250px; height: 10px; background: #333; border-radius: 5px; overflow: hidden;">
+        <div id="wasm-loader-bar" style="width: 0%; height: 100%; background: #4caf50; transition: width 0.2s ease;"></div>
+    </div>
+    <div id="wasm-loader-text" style="margin-top: 10px; color: #aaa; font-size: 14px;">Preparing chunks...</div>
+</div>
+
+<script>
+// 1. Create a global promise that fetches and builds your uncompressed WASM file
+window.combinedWasmBlobUrlPromise = (function() {
+    const chunkUrls = [
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part1",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part2",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part3",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part4",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part5",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part6",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part7",
+        "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part8"
+    ];
+    const progressBar = document.getElementById('wasm-loader-bar');
+    const progressText = document.getElementById('wasm-loader-text');
+    const loaderUi = document.getElementById('wasm-loader-ui');
+
+    let completedChunks = 0;
+
+    const fetchPromises = chunkUrls.map((url, index) => 
+        fetch(url).then(res => {
+            if (!res.ok) throw new Error(`Failed to download part ${index + 1}`);
+            return res.arrayBuffer();
+        }).then(buffer => {
+            completedChunks++;
+            const percent = Math.round((completedChunks / chunkUrls.length) * 100);
+            progressBar.style.width = percent + '%';
+            progressText.innerText = `Downloaded chunk ${completedChunks} of ${chunkUrls.length}...`;
+            return buffer;
+        })
+    );
+
+    return Promise.all(fetchPromises).then(buffers => {
+        progressText.innerText = "Reassembling engine file...";
+        
+        const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+        const combinedArray = new Uint8Array(totalLength);
+        
+        let offset = 0;
+        for (const buf of buffers) {
+            combinedArray.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+        }
+
+        // Convert the combined raw binary array buffer into a local data Object URL
+        const blob = new Blob([combinedArray], { type: 'application/wasm' });
+        const blobUrl = URL.createObjectURL(blob);
+        
+        loaderUi.style.display = 'none';
+        return blobUrl;
+    }).catch(err => {
+        progressText.innerText = "Error assembling game chunks.";
+        progressText.style.color = "#ff4d4d";
+        console.error(err);
+    });
+})();
+</script>
 
 		<script src="html5.js"></script>
 		<script>
@@ -214,6 +281,14 @@ const engine = new Engine(GODOT_CONFIG);
 			setStatusMode('hidden');
 		}, displayFailureNotice);
 	}
+	
+    // Clean Arrow Function syntax to avoid naming statement conflicts
+    locateFile: (path, prefix) => {
+        if (path.endsWith('.wasm')) {
+            return window.combinedWasmBlobUrlPromise;
+        }
+        return prefix + path;
+    }
 }());
 		</script>
 	</body>
