@@ -711,30 +711,28 @@ const Engine = (function () {
 				}
 				const me = this;
 function doInit(promise) {
-    return new Promise(function (resolve, reject) {
-        promise.then(function (response) {
-            // Force the response to evaluate down into an uncompressed arrayBuffer layout.
-            // This forces the browser to cleanly strip the Gzip content-encoding payload wrapper first.
-            response.arrayBuffer().then(function(buffer) {
-                // Pack the pristine uncompressed byte buffer directly into a mock Response stream layout
-                const cleanResponse = new Response(buffer, {
-                    headers: { 'Content-Type': 'application/wasm' }
-                });
-                
-                // Hand the clean data over to Godot's Emscripten boot lifecycle
-                Godot(me.config.getModuleConfig(loadPath, cleanResponse)).then(function (module) {
-                    const paths = me.config.persistentPaths;
-                    module['initFS'](paths).then(function (err) {
-                        me.rtenv = module;
-                        if (me.config.unloadAfterInit) {
-                            Engine.unload();
-                        }
-                        resolve();
-                    });
-                });
-            }).catch(reject);
-        }).catch(reject);
-    });
+	return new Promise(function (resolve, reject) {
+		// Completely bypass the incoming network stream promise reference.
+		// We hook straight into our pre-assembled, uncompressed global memory array buffer.
+		window.combinedWasmBufferPromise.then(function(arrayBuffer) {
+			// Encapsulate the clean byte buffer into a fresh mock Response descriptor
+			const uncompressedResponse = new Response(arrayBuffer, {
+				headers: { 'Content-Type': 'application/wasm' }
+			});
+			
+			// Inject the uncompressed response payload asset directly into the boot lifecycle
+			Godot(me.config.getModuleConfig(loadPath, uncompressedResponse)).then(function (module) {
+				const paths = me.config.persistentPaths;
+				module['initFS'](paths).then(function (err) {
+					me.rtenv = module;
+					if (me.config.unloadAfterInit) {
+						Engine.unload();
+					}
+					resolve();
+				});
+			});
+		}).catch(reject);
+	});
 }
 
 				preloader.setProgressFunc(this.config.onProgress);

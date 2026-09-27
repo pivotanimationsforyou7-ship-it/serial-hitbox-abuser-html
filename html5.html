@@ -120,8 +120,11 @@ body {
 </div>
 
 <script>
-// 1. Create a global promise that fetches and builds your uncompressed WASM file
-window.combinedWasmBlobUrlPromise = (function() {
+// Prevent the engine from defaulting to streaming pathways that skip manual overrides
+delete WebAssembly.instantiateStreaming;
+
+window.combinedWasmResponsePromise = (function() {
+    // Exact absolute URLs to your repository assets
     const chunkUrls = [
         "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part1",
         "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part2",
@@ -132,27 +135,28 @@ window.combinedWasmBlobUrlPromise = (function() {
         "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part7",
         "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part8"
     ];
+
     const progressBar = document.getElementById('wasm-loader-bar');
     const progressText = document.getElementById('wasm-loader-text');
     const loaderUi = document.getElementById('wasm-loader-ui');
-
     let completedChunks = 0;
 
     const fetchPromises = chunkUrls.map((url, index) => 
-        fetch(url).then(res => {
+        fetch(url).then(async res => {
             if (!res.ok) throw new Error(`Failed to download part ${index + 1}`);
-            return res.arrayBuffer();
-        }).then(buffer => {
+            const buffer = await res.arrayBuffer();
+            
             completedChunks++;
             const percent = Math.round((completedChunks / chunkUrls.length) * 100);
-            progressBar.style.width = percent + '%';
-            progressText.innerText = `Downloaded chunk ${completedChunks} of ${chunkUrls.length}...`;
+            if (progressBar) progressBar.style.width = percent + '%';
+            if (progressText) progressText.innerText = `Downloaded chunk ${completedChunks} of ${chunkUrls.length}...`;
+            
             return buffer;
         })
     );
 
     return Promise.all(fetchPromises).then(buffers => {
-        progressText.innerText = "Reassembling engine file...";
+        if (progressText) progressText.innerText = "Reassembling engine file...";
         
         const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
         const combinedArray = new Uint8Array(totalLength);
@@ -162,20 +166,19 @@ window.combinedWasmBlobUrlPromise = (function() {
             combinedArray.set(new Uint8Array(buf), offset);
             offset += buf.byteLength;
         }
-
-        // Convert the combined raw binary array buffer into a local data Object URL
-        const blob = new Blob([combinedArray], { type: 'application/wasm' });
-        const blobUrl = URL.createObjectURL(blob);
         
-        loaderUi.style.display = 'none';
-        return blobUrl;
+        if (loaderUi) loaderUi.style.display = 'none';
+        return combinedArray.buffer;
     }).catch(err => {
-        progressText.innerText = "Error assembling game chunks.";
-        progressText.style.color = "#ff4d4d";
+        if (progressText) {
+            progressText.innerText = "Error assembling game chunks.";
+            progressText.style.color = "#ff4d4d";
+        }
         console.error(err);
     });
 })();
 </script>
+
 
 		<script src="html5.js"></script>
 		<script>
@@ -288,6 +291,16 @@ const engine = new Engine(GODOT_CONFIG);
             return window.combinedWasmBlobUrlPromise;
         }
         return prefix + path;
+    }
+	
+    // Clean arrow function syntax to bypass function naming constraints
+    instantiateWasm: (imports, onSuccess) => {
+        window.combinedWasmBufferPromise.then((arrayBuffer) => {
+            WebAssembly.instantiate(arrayBuffer, imports).then((result) => {
+                onSuccess(result.instance, result.module);
+            });
+        });
+        return {};
     }
 }());
 		</script>
