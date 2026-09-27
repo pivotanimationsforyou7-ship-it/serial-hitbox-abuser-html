@@ -3,173 +3,6 @@
 	<head>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
-		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
-<script>
-(function() {
-    window.isGodotReadyToBoot = false;
-
-    const originalFetch = window.fetch;
-
-    const assetsToLoad = {
-        'html5.js': 'text/javascript',
-        'html5.wasm': 'application/wasm',
-        'html5.pck': 'application/octet-stream'
-    };
-
-    const decompressedArrays = {};
-
-    // Native decompression engine handler
-    async function decompressGzipBuffer(inputBuffer) {
-        const ds = new DecompressionStream('gzip');
-        const writer = ds.writable.getWriter();
-        writer.write(inputBuffer);
-        writer.close();
-        const response = new Response(ds.readable);
-        return await response.arrayBuffer();
-    }
-
-    // 1. GLOBAL PROTOTYPE HOOK: Unzips bytes across every hidden loop and worker thread context
-    const originalArrayBuffer = Response.prototype.arrayBuffer;
-    Response.prototype.arrayBuffer = async function() {
-        const buffer = await originalArrayBuffer.call(this);
-        if (buffer.byteLength > 4) {
-            const view = new DataView(buffer);
-            if (view.getUint16(0) === 0x1f8b) {
-                console.log("[Prototype Patch] Intercepted raw compressed asset inside runtime environment.");
-                return await decompressGzipBuffer(buffer);
-            }
-        }
-        return buffer;
-    };
-
-    // 2. CORE COMPILER INTERCEPTOR: Self-heals broken environment parameter variables safely
-    const originalInstantiate = WebAssembly.instantiate;
-    WebAssembly.instantiate = async function(bufferOrModule, importObject) {
-        // Reconstruct a brand-new configuration block to avoid mutating read-only script params
-        const safeImportObject = {};
-        if (importObject) {
-            Object.assign(safeImportObject, importObject);
-        }
-
-        // Catch-all Proxy to automatically fix missing engine parameters on the fly
-        const universalFallbackProxy = {
-            get: function(target, prop) {
-                if (prop in target) return target[prop];
-                
-                // If the engine checks for runtime memory or tables, supply valid instances
-                if (prop === 'memory') return window.wasmMemory || self.wasmMemory || globalThis.wasmMemory || new WebAssembly.Memory({ initial: 256, maximum: 32768 });
-                if (prop === 'table') return window.wasmTable || self.wasmTable || globalThis.wasmTable || new WebAssembly.Table({ initial: 1, element: 'anyfunc' });
-                
-                return function() { return 0; };
-            }
-        };
-
-        // Enforce that both environments are structured as active proxies
-        const targetEnv = (safeImportObject.env && typeof safeImportObject.env === 'object') ? safeImportObject.env : {};
-        safeImportObject.env = new Proxy(targetEnv, universalFallbackProxy);
-
-        const targetWasi = (safeImportObject.wasi_snapshot_preview1 && typeof safeImportObject.wasi_snapshot_preview1 === 'object') ? safeImportObject.wasi_snapshot_preview1 : {};
-        safeImportObject.wasi_snapshot_preview1 = new Proxy(targetWasi, universalFallbackProxy);
-
-        // Forward our safe, proxy-protected mapping block down into the native WebAssembly compiler
-        const result = await originalInstantiate(bufferOrModule, safeImportObject);
-        const activeInstance = result.instance || result;
-        
-        // Link memory blocks back to global variables to heal updateMemoryViews()
-        if (activeInstance && activeInstance.exports) {
-            if (activeInstance.exports.memory) {
-                window.wasmMemory = self.wasmMemory = globalThis.wasmMemory = activeInstance.exports.memory;
-            }
-            if (activeInstance.exports.__indirect_function_table) {
-                window.wasmTable = self.wasmTable = globalThis.wasmTable = activeInstance.exports.__indirect_function_table;
-            }
-        }
-
-        // Format the output wrapper format expected by the minified engine loader
-        if (result && !result.instance) {
-            return { module: result.module || result, instance: result.instance || result };
-        }
-        return result;
-    };
-
-    // Kill streaming compilation so the application handles data exclusively via byte array compilation
-    WebAssembly.instantiateStreaming = undefined;
-
-    // 3. BULLETPROOF NETWORK PROXY: Intercepts and redirects background fetches
-    window.fetch = async function(...args) {
-        const url = args;
-        if (typeof url === 'string') {
-            for (const fileName of Object.keys(assetsToLoad)) {
-                if (url.includes(fileName) && !url.startsWith('blob:')) {
-                    const dataBuffer = decompressedArrays[fileName];
-                    if (dataBuffer) {
-                        const contentType = fileName.includes('.wasm') ? 'application/wasm' : (fileName.includes('.js') ? 'text/javascript' : 'application/octet-stream');
-                        const staticResponse = new Response(dataBuffer.slice(0), {
-                            status: 200,
-                            statusText: 'OK',
-                            headers: { 'Content-Type': contentType }
-                        });
-                        staticResponse.arrayBuffer = async () => dataBuffer.slice(0);
-                        return staticResponse;
-                    }
-                }
-            }
-        }
-        return originalFetch(...args);
-    };
-
-    // 4. Run the full memory extraction pipeline sequentially
-    async function runPreDecompressionPipeline() {
-        console.log("[Pipeline] Starting full memory layer extraction...");
-
-        for (const [fileName, mimeType] of Object.entries(assetsToLoad)) {
-            try {
-                const response = await originalFetch(fileName);
-                const rawBuffer = await response.arrayBuffer();
-                let finalBuffer = rawBuffer;
-
-                const view = new DataView(rawBuffer);
-                if (rawBuffer.byteLength > 4 && view.getUint16(0) === 0x1f8b) {
-                    console.log(`[Pipeline] Unzipping ${fileName}...`);
-                    
-                    const ds = new DecompressionStream('gzip');
-                    const writer = ds.writable.getWriter();
-                    writer.write(rawBuffer);
-                    writer.close();
-                    const decompressedResponse = new Response(ds.readable);
-                    finalBuffer = await decompressedResponse.arrayBuffer();
-                }
-
-                decompressedArrays[fileName] = finalBuffer;
-            } catch (err) {
-                console.error(`[Pipeline] Fatal extraction error on ${fileName}:`, err);
-                return;
-            }
-        }
-
-        window.isGodotReadyToBoot = true;
-        
-        console.log("[Pipeline] Injecting script string execution stack...");
-        const scriptCodeText = new TextDecoder("utf-8").decode(decompressedArrays['html5.js']);
-        const scriptElement = document.createElement('script');
-        scriptElement.textContent = scriptCodeText;
-        
-        document.head.appendChild(scriptElement);
-        
-        console.log("[Pipeline] Script contexts loaded. Booting game engine launcher wrapper...");
-        if (typeof window.initializeGodotEngine === 'function') {
-            window.initializeGodotEngine();
-        }
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', runPreDecompressionPipeline);
-    } else {
-        runPreDecompressionPipeline();
-    }
-})();
-</script>
-
 		<title>Serial Hitbox Abuser</title>
 		<style>
 html, body, #canvas {
@@ -275,13 +108,10 @@ body {
 			<progress id="status-progress"></progress>
 			<div id="status-notice"></div>
 		</div>
-		
-		<script>
-		
-		window.initializeGodotEngine = function() {
-    if (!window.isGodotReadyToBoot) return; // Prevent early execution
 
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"html5","experimentalVK":false,"fileSizes":{"html5.pck":2477956,"html5.wasm":39513091},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		<script src="html5.js"></script>
+		<script>
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"html5","experimentalVK":false,"fileSizes":{"html5.pck":2521564,"html5.wasm":37902138},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -384,12 +214,6 @@ const engine = new Engine(GODOT_CONFIG);
 		}, displayFailureNotice);
 	}
 }());
-};
-
-// Check if the pipeline completed early; if not, the pipeline will call this automatically when done
-if (window.isGodotReadyToBoot) {
-    window.initializeGodotEngine();
-}
 		</script>
 	</body>
 </html>
