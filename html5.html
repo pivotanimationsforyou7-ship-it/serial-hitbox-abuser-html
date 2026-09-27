@@ -4,6 +4,26 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
 		<base href="https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@HEAD/">
+		<script>
+(function () {
+    const origInstantiate = WebAssembly.instantiate.bind(WebAssembly);
+    const origInstantiateStreaming = WebAssembly.instantiateStreaming
+        ? WebAssembly.instantiateStreaming.bind(WebAssembly)
+        : null;
+
+    WebAssembly.instantiate = function (bufferOrModule, importObject) {
+        console.log('[WASM DEBUG] instantiate() imports:', importObject, new Error().stack);
+        return origInstantiate(bufferOrModule, importObject);
+    };
+
+    if (origInstantiateStreaming) {
+        WebAssembly.instantiateStreaming = function (source, importObject) {
+            console.log('[WASM DEBUG] instantiateStreaming() imports:', importObject, new Error().stack);
+            return origInstantiateStreaming(source, importObject);
+        };
+    }
+})();
+</script>
 		<title>Serial Hitbox Abuser</title>
 		<style>
 html, body, #canvas {
@@ -120,11 +140,9 @@ body {
 </div>
 
 <script>
-// Prevent the engine from defaulting to streaming pathways that skip manual overrides
-delete WebAssembly.instantiateStreaming;
+(function () {
+    const originalFetch = window.fetch.bind(window);
 
-window.combinedWasmResponsePromise = (function() {
-    // Exact absolute URLs to your repository assets
     const chunkUrls = [
         "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part1",
         "https://cdn.jsdelivr.net/gh/pivotanimationsforyou7-ship-it/serial-hitbox-abuser-html@main/html5.wasm.part2",
@@ -139,47 +157,72 @@ window.combinedWasmResponsePromise = (function() {
     const progressBar = document.getElementById('wasm-loader-bar');
     const progressText = document.getElementById('wasm-loader-text');
     const loaderUi = document.getElementById('wasm-loader-ui');
-    let completedChunks = 0;
 
-    const fetchPromises = chunkUrls.map((url, index) => 
-        fetch(url).then(async res => {
-            if (!res.ok) throw new Error(`Failed to download part ${index + 1}`);
-            const buffer = await res.arrayBuffer();
-            
-            completedChunks++;
-            const percent = Math.round((completedChunks / chunkUrls.length) * 100);
-            if (progressBar) progressBar.style.width = percent + '%';
-            if (progressText) progressText.innerText = `Downloaded chunk ${completedChunks} of ${chunkUrls.length}...`;
-            
-            return buffer;
-        })
-    );
+    let wasmBytesPromise = null;
 
-    return Promise.all(fetchPromises).then(buffers => {
-        if (progressText) progressText.innerText = "Reassembling engine file...";
-        
-        const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
-        const combinedArray = new Uint8Array(totalLength);
-        
-        let offset = 0;
-        for (const buf of buffers) {
-            combinedArray.set(new Uint8Array(buf), offset);
-            offset += buf.byteLength;
+    function buildWasmBytes() {
+        if (wasmBytesPromise) return wasmBytesPromise;
+
+        let completedChunks = 0;
+
+        wasmBytesPromise = Promise.all(chunkUrls.map((url, index) =>
+            originalFetch(url).then(async res => {
+                if (!res.ok) throw new Error(`Failed to download part ${index + 1}`);
+                const buffer = await res.arrayBuffer();
+                completedChunks++;
+                const percent = Math.round((completedChunks / chunkUrls.length) * 100);
+                if (progressBar) progressBar.style.width = percent + '%';
+                if (progressText) progressText.innerText = `Downloaded chunk ${completedChunks} of ${chunkUrls.length}...`;
+                return buffer;
+            })
+        )).then(async buffers => {
+            if (progressText) progressText.innerText = "Reassembling engine file...";
+
+            const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+            const combined = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const buf of buffers) {
+                combined.set(new Uint8Array(buf), offset);
+                offset += buf.byteLength;
+            }
+
+            let finalBytes = combined;
+
+            // gzip magic bytes: 1f 8b — decompress if the parts were gzipped before splitting
+            if (combined[0] === 0x1f && combined[1] === 0x8b) {
+                if (progressText) progressText.innerText = "Decompressing engine file...";
+                const ds = new DecompressionStream('gzip');
+                const stream = new Blob([combined]).stream().pipeThrough(ds);
+                finalBytes = new Uint8Array(await new Response(stream).arrayBuffer());
+            }
+
+            if (loaderUi) loaderUi.style.display = 'none';
+            return finalBytes;
+        }).catch(err => {
+            if (progressText) {
+                progressText.innerText = "Error assembling game chunks.";
+                progressText.style.color = "#ff4d4d";
+            }
+            console.error(err);
+            throw err;
+        });
+
+        return wasmBytesPromise;
+    }
+
+    // Intercept only the request for the main wasm file; everything else passes through untouched.
+    window.fetch = function (input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.endsWith('html5.wasm')) {
+            return buildWasmBytes().then(bytes => new Response(bytes, {
+                status: 200,
+                headers: { 'Content-Type': 'application/wasm' }
+            }));
         }
-        
-        if (loaderUi) loaderUi.style.display = 'none';
-        return combinedArray.buffer;
-    }).catch(err => {
-        if (progressText) {
-            progressText.innerText = "Error assembling game chunks.";
-            progressText.style.color = "#ff4d4d";
-        }
-        console.error(err);
-    });
+        return originalFetch(input, init);
+    };
 })();
 </script>
-
-
 		<script src="html5.js"></script>
 		<script>
 const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"html5","experimentalVK":false,"fileSizes":{"html5.pck":2521564,"html5.wasm":37902138},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
@@ -284,24 +327,6 @@ const engine = new Engine(GODOT_CONFIG);
 			setStatusMode('hidden');
 		}, displayFailureNotice);
 	}
-	
-    // Clean Arrow Function syntax to avoid naming statement conflicts
-    locateFile: (path, prefix) => {
-        if (path.endsWith('.wasm')) {
-            return window.combinedWasmBlobUrlPromise;
-        }
-        return prefix + path;
-    }
-	
-    // Clean arrow function syntax to bypass function naming constraints
-    instantiateWasm: (imports, onSuccess) => {
-        window.combinedWasmBufferPromise.then((arrayBuffer) => {
-            WebAssembly.instantiate(arrayBuffer, imports).then((result) => {
-                onSuccess(result.instance, result.module);
-            });
-        });
-        return {};
-    }
 }());
 		</script>
 	</body>

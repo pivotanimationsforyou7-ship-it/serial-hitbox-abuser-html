@@ -535,21 +535,20 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			'noExitRuntime': false,
 			'dynamicLibraries': [`${loadPath}.side.wasm`].concat(this.gdextensionLibs),
 			'emscriptenPoolSize': this.emscriptenPoolSize,
-'instantiateWasm': function (imports, onSuccess) {
-    function done(result) {
-        onSuccess(result['instance'], result['module']);
-    }
-    
-    // Explicitly bypass instantiateStreaming to avoid network-layer GZip parsing bugs.
-    // We read the clean, uncompressed array buffer directly from memory.
-    r.arrayBuffer().then(function (buffer) {
-        WebAssembly.instantiate(buffer, imports).then(done);
-    });
-
-    r = null;
-    return {};
-},
-
+			'instantiateWasm': function (imports, onSuccess) {
+				function done(result) {
+					onSuccess(result['instance'], result['module']);
+				}
+				if (typeof (WebAssembly.instantiateStreaming) !== 'undefined') {
+					WebAssembly.instantiateStreaming(Promise.resolve(r), imports).then(done);
+				} else {
+					r.arrayBuffer().then(function (buffer) {
+						WebAssembly.instantiate(buffer, imports).then(done);
+					});
+				}
+				r = null;
+				return {};
+			},
 			'locateFile': function (path) {
 				if (!path.startsWith('godot.')) {
 					return path;
@@ -710,31 +709,26 @@ const Engine = (function () {
 					Engine.load(basePath, this.config.fileSizes[`${basePath}.wasm`]);
 				}
 				const me = this;
-function doInit(promise) {
-	return new Promise(function (resolve, reject) {
-		// Completely bypass the incoming network stream promise reference.
-		// We hook straight into our pre-assembled, uncompressed global memory array buffer.
-		window.combinedWasmBufferPromise.then(function(arrayBuffer) {
-			// Encapsulate the clean byte buffer into a fresh mock Response descriptor
-			const uncompressedResponse = new Response(arrayBuffer, {
-				headers: { 'Content-Type': 'application/wasm' }
-			});
-			
-			// Inject the uncompressed response payload asset directly into the boot lifecycle
-			Godot(me.config.getModuleConfig(loadPath, uncompressedResponse)).then(function (module) {
-				const paths = me.config.persistentPaths;
-				module['initFS'](paths).then(function (err) {
-					me.rtenv = module;
-					if (me.config.unloadAfterInit) {
-						Engine.unload();
-					}
-					resolve();
-				});
-			});
-		}).catch(reject);
-	});
-}
-
+				function doInit(promise) {
+					// Care! Promise chaining is bogus with old emscripten versions.
+					// This caused a regression with the Mono build (which uses an older emscripten version).
+					// Make sure to test that when refactoring.
+					return new Promise(function (resolve, reject) {
+						promise.then(function (response) {
+							const cloned = new Response(response.clone().body, { 'headers': [['content-type', 'application/wasm']] });
+							Godot(me.config.getModuleConfig(loadPath, cloned)).then(function (module) {
+								const paths = me.config.persistentPaths;
+								module['initFS'](paths).then(function (err) {
+									me.rtenv = module;
+									if (me.config.unloadAfterInit) {
+										Engine.unload();
+									}
+									resolve();
+								});
+							});
+						});
+					});
+				}
 				preloader.setProgressFunc(this.config.onProgress);
 				initPromise = doInit(loadPromise);
 				return initPromise;
